@@ -78,7 +78,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const L="ABCDE";
 const COLS=[...MODS.map(m=>({k:m.key,t:m.kode})),{k:"dy",t:"Dayak"},{k:"ev",t:"Evaluasi"}];
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbzV2IgSJOTgNmzWa96AB-xNxaZHdVstRzCEWAeTR32CdZHd1THkCmQbIKJ1X3xAVkZd/exec"; // TEMPEL URL WEB APP APPS SCRIPT DI SINI
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbz0tHjaaVKT8kyE8bdC73DiY6IG86Nxe5X21ZwKGROwiltWCeRVEi9haiMNGbeoz1CX/exec"; // TEMPEL URL WEB APP APPS SCRIPT DI SINI
 let rows={},cur="1.1",ans={},done={};
 let lastRefreshAt=null, refreshBusy=false, autoRefreshTimer=null;
 const AUTO_REFRESH_MS=30000;
@@ -150,6 +150,33 @@ function avg(r){const v=COLS.map(c=>r["k"+c.k]).filter(x=>x!=null&&x!=="");retur
 function setRefreshStatus(message,isError=false){
  const el=$("rekapStatus");if(el){el.textContent=message;el.style.color=isError?"var(--bad)":"var(--mut)"}
 }
+function fetchSheetJsonp(){
+ return new Promise((resolve,reject)=>{
+  const callbackName="__sheetJsonp_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+  const script=document.createElement("script");
+  let finished=false;
+  const cleanup=()=>{
+   if(script.parentNode)script.parentNode.removeChild(script);
+   try{delete window[callbackName]}catch(e){window[callbackName]=undefined}
+  };
+  const timer=setTimeout(()=>{
+   if(finished)return;
+   finished=true;cleanup();
+   reject(new Error("Waktu tunggu habis saat membaca Google Sheets. Periksa deployment dan akses Web App."));
+  },20000);
+  window[callbackName]=(data)=>{
+   if(finished)return;
+   finished=true;clearTimeout(timer);cleanup();resolve(data);
+  };
+  script.onerror=()=>{
+   if(finished)return;
+   finished=true;clearTimeout(timer);cleanup();
+   reject(new Error("Tidak dapat menghubungi URL Web App Apps Script."));
+  };
+  script.src=SCRIPT_URL+"?callback="+encodeURIComponent(callbackName)+"&t="+Date.now();
+  document.head.appendChild(script);
+ });
+}
 async function refreshSheet(opts={}){
  const silent=!!opts.silent;
  if(refreshBusy)return false;
@@ -160,9 +187,9 @@ async function refreshSheet(opts={}){
  if(!silent)setRefreshStatus("Mengambil data terbaru dari Google Sheets...");
  const previousRefresh=lastRefreshAt;
  try{
-  const response=await fetch(SCRIPT_URL+"?t="+Date.now(),{method:"GET",cache:"no-store"});
-  if(!response.ok)throw new Error("Server merespons HTTP "+response.status);
-  const data=await response.json();
+  // JSONP digunakan agar pembacaan lintas domain dari GitHub Pages
+  // tidak terhalang kebijakan CORS pada respons ContentService Apps Script.
+  const data=await fetchSheetJsonp();
   if(!Array.isArray(data))throw new Error("Format data dari Apps Script tidak sesuai (seharusnya array JSON).");
   const fresh={};
   data.forEach(x=>{
